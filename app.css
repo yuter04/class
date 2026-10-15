@@ -18,6 +18,7 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif; }
+body.student { background: radial-gradient(ellipse at 8% 0, #fff0d4 0, transparent 30rem), radial-gradient(ellipse at 95% 20%, #e5f6ff 0, transparent 32rem), #f8f5ff; }
 h1, h2, h3 { margin: 0; line-height: 1.3; }
 h1 { font-size: 1.6rem; }
 h2 { font-size: 1.15rem; }
@@ -231,3 +232,25 @@ main.lesson.split .sim-stage .sim-frame { max-height: calc(100vh - 9.5rem); }
 .sim-progress-row ul { grid-column: 1 / -1; margin: 0; padding-left: 1.25rem; color: var(--muted); }
 @media (max-width: 620px) { .sim-progress-row { grid-template-columns: 1fr auto; } .sim-progress-row ul { grid-column: 1 / -1; } }
 textarea.mono { font-family: ui-monospace, Consolas, monospace; font-size: .85rem; }
+
+/* 학생 화면 색상 */
+.student .top { background: rgba(255, 255, 255, .94); border-bottom-color: #e8def8; }
+.student .intro { padding-top: 2.25rem; }
+.student .intro .eyebrow { color: #8a45bd; }
+.student main.narrow > .card { border-color: #e5d9f4; box-shadow: 0 12px 30px rgba(86, 55, 122, .09); }
+.student main.lesson .card.activity { border-color: #e8def3; border-top: 5px solid var(--student-color, #9b70dc); background: linear-gradient(145deg, var(--student-tint, #f5efff), #fff 58%); box-shadow: 0 8px 24px rgba(66, 53, 94, .07); }
+.student main.lesson > div:last-child > section.activity:nth-of-type(4n + 1) { --student-color: #ef8d62; --student-tint: #fff2e9; }
+.student main.lesson > div:last-child > section.activity:nth-of-type(4n + 2) { --student-color: #54a98a; --student-tint: #eaf8f0; }
+.student main.lesson > div:last-child > section.activity:nth-of-type(4n + 3) { --student-color: #6e91df; --student-tint: #edf2ff; }
+.student main.lesson > div:last-child > section.activity:nth-of-type(4n) { --student-color: #bd79c9; --student-tint: #f8edfa; }
+.student main.lesson .options > .option:nth-of-type(4n + 1) { --choice-color: #e68b57; --choice-tint: #fff3e9; border-color: #f1d7c5; background: #fffaf6; }
+.student main.lesson .options > .option:nth-of-type(4n + 2) { --choice-color: #4c9c7c; --choice-tint: #eaf8f0; border-color: #cee8d9; background: #f5fcf7; }
+.student main.lesson .options > .option:nth-of-type(4n + 3) { --choice-color: #6283ce; --choice-tint: #edf2ff; border-color: #d7e0f8; background: #f7f9ff; }
+.student main.lesson .options > .option:nth-of-type(4n) { --choice-color: #ad6bb8; --choice-tint: #f8edfa; border-color: #ead6ed; background: #fdf8fe; }
+.student main.lesson .option:has(input:checked) { border: 2px solid var(--choice-color, #8054c7); background: var(--choice-tint, #f3edff); }
+.student button.primary { background: linear-gradient(120deg, #7955d9, #b451b7 55%, #e47a91); box-shadow: 0 5px 13px rgba(133, 79, 183, .2); }
+.student button.primary:hover:not(:disabled) { background: linear-gradient(120deg, #6641c8, #a13ea7 55%, #d65f7a); }
+.student button.ghost { border-color: #d8cbed; }
+.student .badge { color: #7b3e9c; background: #f3e9fb; }
+.student .tip { background: linear-gradient(120deg, #fff4d9, #f8efff); color: #51416a; }
+.student .bar { background: linear-gradient(90deg, #f2a46b, #b77add 55%, #6f9ce8); }
