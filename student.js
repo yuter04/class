@@ -16,6 +16,8 @@ let following = true;   // 교사가 띄운 쪽을 따라가는 중인지
 let timer = null;
 let shell = null;
 const cards = new Map(); // 활동 id → 화면 카드
+const simFrames = new WeakMap(); // 시뮬레이션 iframe → 활동
+const simProgressSent = new Map();
 
 if (!sb) notConfigured(app);
 else start();
@@ -293,6 +295,73 @@ function render(pageChanged) {
 
 // ---------- 시뮬레이션 ----------
 const simCache = new Map();   // 활동 id → { ver, html }
+const SIM_HEARTBEAT_MS = 15000;
+
+function monitoredSimHtml(html) {
+  const script = `<script>(function(){
+    const send = () => {
+      const fields = [];
+      const controls = Array.from(document.querySelectorAll('input,select,textarea'));
+      controls.forEach((el, index) => {
+        const type = el.tagName === 'SELECT' ? 'select' : (el.type || el.tagName).toLowerCase();
+        if (['hidden','password','file','button','submit','reset'].includes(type)) return;
+        if (!['range','number','select','checkbox','radio'].includes(type) && !el.hasAttribute('data-cra-condition')) return;
+        const label = (el.getAttribute('aria-label') || (el.labels && Array.from(el.labels).map(x => x.innerText).join(' ').trim()) || el.closest('label')?.innerText || el.name || el.id || ('조건 ' + (index + 1))).trim().slice(0, 80);
+        let value;
+        if (type === 'checkbox' || type === 'radio') value = el.checked ? (el.value || true) : null;
+        else if (el.tagName === 'SELECT' && el.multiple) value = Array.from(el.selectedOptions, o => o.textContent.trim()).slice(0, 10);
+        else if (el.tagName === 'SELECT') value = el.selectedOptions[0]?.textContent.trim() || el.value;
+        else value = el.value;
+        if (value !== null) fields.push({label, value: String(Array.isArray(value) ? value.join(', ') : value).slice(0, 120)});
+      });
+      parent.postMessage({type:'cra-sim-progress', state:{fields:fields.slice(0,30)}}, '*');
+    };
+    let changed = false;
+    const changedSoon = () => { changed = true; clearTimeout(window.__craSimDebounce); window.__craSimDebounce = setTimeout(send, 500); };
+    document.addEventListener('input', changedSoon, true);
+    document.addEventListener('change', changedSoon, true);
+    window.reportSimulationState = state => parent.postMessage({type:'cra-sim-progress', state}, '*');
+    send();
+    setInterval(() => { if (!changed) send(); changed = false; }, ${SIM_HEARTBEAT_MS});
+  })();<\/script>`;
+  const source = typeof html === "string" ? html : "";
+  return /<\/body\s*>/i.test(source) ? source.replace(/<\/body\s*>/i, script + "</body>") : source + script;
+}
+
+function trackSimFrame(frame, activity, html) {
+  simFrames.set(frame.contentWindow, activity);
+  frame.srcdoc = monitoredSimHtml(html);
+}
+
+window.addEventListener("message", (event) => {
+  const activity = simFrames.get(event.source);
+  if (!activity || !event.data || event.data.type !== "cra-sim-progress" || !frameIsActive(event.source)) return;
+  const state = normalizeSimState(event.data.state);
+  if (!state) return;
+  const key = activity.id;
+  const serialized = JSON.stringify(state);
+  if (simProgressSent.get(key) === serialized && Date.now() - (simProgressSent.get(key + ":at") || 0) < SIM_HEARTBEAT_MS - 1000) return;
+  simProgressSent.set(key, serialized);
+  simProgressSent.set(key + ":at", Date.now());
+  sb.rpc("student_simulation_progress", { p_token: token, p_activity: activity.id, p_state: state })
+    .then(({ error }) => { if (error) console.warn("시뮬레이션 진행 상황을 저장하지 못했습니다.", error.message); });
+});
+
+function frameIsActive(source) {
+  for (const frame of document.querySelectorAll("iframe.sim-frame")) if (frame.contentWindow === source) return frame.isConnected && !document.hidden;
+  return false;
+}
+
+function normalizeSimState(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const fields = Array.isArray(value.fields) ? value.fields.slice(0, 30).map((field) => ({
+    label: String(field && field.label || "조건").slice(0, 80),
+    value: String(field && field.value != null ? field.value : "").slice(0, 120),
+  })) : Object.entries(value).slice(0, 30).map(([label, field]) => ({ label: label.slice(0, 80), value: String(field).slice(0, 120) }));
+  const state = { fields };
+  while (fields.length && new TextEncoder().encode(JSON.stringify(state)).length > 3500) fields.pop();
+  return state;
+}
 
 async function loadSim(a) {
   const hit = simCache.get(a.id);
@@ -315,7 +384,7 @@ function showStageSim(a) {
   if (!a) return;
   const f = simFrame(null, a.title);
   shell.simStage.append(f);
-  loadSim(a).then((html) => { if (shell.stageKey === key) f.srcdoc = html; })
+  loadSim(a).then((html) => { if (shell.stageKey === key) trackSimFrame(f, a, html); })
     .catch(() => shell.simStage.replaceChildren(h("p", { class: "error" }, "시뮬레이션을 불러오지 못했습니다. 새로고침해 보세요.")));
 }
 
@@ -333,9 +402,9 @@ function simCard(a) {
     c.el.replaceChildren(
       h("div", { class: "card-head" }, h("h2", {}, a.title), h("span", { class: "badge" }, "시뮬레이션")),
       h("p", { class: "muted small" }, "직접 조작해 보세요. 화면이 작으면 「화면 가득 보기」를 누르세요."),
-      h("button", { class: "primary", type: "button", onclick() { loadSim(a).then((html) => openSimFull(a.title, html)); } }, "화면 가득 보기"),
+      h("button", { class: "primary", type: "button", onclick() { loadSim(a).then((html) => openSimFull(a.title, html, (frame) => trackSimFrame(frame, a, html))); } }, "화면 가득 보기"),
       f);
-    loadSim(a).then((html) => { if (c.key === key) f.srcdoc = html; })
+    loadSim(a).then((html) => { if (c.key === key) trackSimFrame(f, a, html); })
       .catch(() => f.replaceWith(h("p", { class: "error" }, "시뮬레이션을 불러오지 못했습니다. 새로고침해 보세요.")));
   }
   return c.el;

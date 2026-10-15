@@ -45,12 +45,14 @@ function simFrame(html, title) {
 }
 
 // 시뮬레이션을 화면 가득 띄운다. 닫기 버튼이나 Esc로 닫는다.
-function openSimFull(title, html) {
+function openSimFull(title, html, onFrame) {
   const close = () => { box.remove(); document.removeEventListener("keydown", esc); if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); };
   const esc = (e) => { if (e.key === "Escape") close(); };
+  const frame = simFrame(onFrame ? null : html, title);
+  if (onFrame) onFrame(frame);
   const box = h("div", { class: "sim-full" },
     h("div", { class: "sim-full-head" }, h("strong", {}, title || "시뮬레이션"), h("button", { class: "ghost", type: "button", onclick: close }, "닫기")),
-    simFrame(html, title));
+    frame);
   document.addEventListener("keydown", esc);
   document.body.append(box);
   if (box.requestFullscreen) box.requestFullscreen().catch(() => {});

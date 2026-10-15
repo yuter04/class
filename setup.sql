@@ -87,6 +87,17 @@ create table if not exists responses (
 );
 create index if not exists responses_activity on responses (activity_id);
 
+-- 시뮬레이션: 학생이 조작한 조건을 교사 화면에서 실시간으로 확인한다.
+create table if not exists simulation_progress (
+  lesson_id   uuid not null,
+  activity_id uuid not null references activities(id) on delete cascade,
+  student_id  uuid not null,
+  state       jsonb not null default '{"fields":[]}' check (jsonb_typeof(state) = 'object' and octet_length(state::text) <= 4000),
+  updated_at  timestamptz not null default now(),
+  primary key (activity_id, student_id),
+  foreign key (lesson_id, student_id) references lesson_students(lesson_id, student_id) on delete cascade
+);
+
 -- 예전 구조(수업마다 학생이 따로)에서 옮기기. 이미 새 구조면 아무것도 하지 않는다.
 -- 같은 학번+이름은 한 명으로 합치고, 가장 최근에 들어온 기록의 비밀번호를 쓴다. 응답은 모두 그 학생에게 옮긴다.
 do $$
@@ -120,6 +131,7 @@ alter table activities enable row level security;
 alter table students   enable row level security;
 alter table responses  enable row level security;
 alter table lesson_students enable row level security;
+alter table simulation_progress enable row level security;
 
 create or replace function is_teacher() returns boolean
 language sql stable security definer set search_path = public as $$
@@ -131,11 +143,13 @@ drop policy if exists teacher_all on activities;
 drop policy if exists teacher_all on students;
 drop policy if exists teacher_all on responses;
 drop policy if exists teacher_all on lesson_students;
+drop policy if exists simulation_progress_teacher_all on simulation_progress;
 create policy teacher_all on lessons    for all to authenticated using (is_teacher()) with check (is_teacher());
 create policy teacher_all on activities for all to authenticated using (is_teacher()) with check (is_teacher());
 create policy teacher_all on students   for all to authenticated using (is_teacher()) with check (is_teacher());
 create policy teacher_all on responses  for all to authenticated using (is_teacher()) with check (is_teacher());
 create policy teacher_all on lesson_students for all to authenticated using (is_teacher()) with check (is_teacher());
+create policy simulation_progress_teacher_all on simulation_progress for all to authenticated using (is_teacher()) with check (is_teacher());
 
 -- 새 수업 만들기: 겹치지 않는 수업 코드를 서버가 정한다(헷갈리는 0, O, 1, I 는 쓰지 않음)
 -- p_kind: 'lesson'(슬라이드 수업) 또는 'survey'(설문만)
@@ -337,12 +351,53 @@ begin
     where m.lesson_id = p_lesson), '[]'::jsonb);
 end $$;
 
+-- 학생: 본인이 참여 중인 수업의 시뮬레이션 조건만 저장한다.
+create or replace function student_simulation_progress(p_token text, p_activity uuid, p_state jsonb)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  s students;
+  a activities;
+begin
+  select * into s from students where token = p_token and p_token is not null;
+  if not found then return jsonb_build_object('error', 'logged_out'); end if;
+  select * into a from activities where id = p_activity and kind = 'sim';
+  if not found or not exists (
+    select 1 from lesson_students where lesson_id = a.lesson_id and student_id = s.id
+  ) then return jsonb_build_object('error', 'no_activity'); end if;
+  if jsonb_typeof(p_state) is distinct from 'object' or octet_length(p_state::text) > 4000 then
+    return jsonb_build_object('error', 'bad_state');
+  end if;
+  insert into simulation_progress (lesson_id, activity_id, student_id, state, updated_at)
+    values (a.lesson_id, a.id, s.id, p_state, now())
+    on conflict (activity_id, student_id)
+    do update set state = excluded.state, updated_at = now();
+  return jsonb_build_object('ok', true);
+end $$;
+
+-- 교사: 본인 교사 계정으로만 해당 수업의 시뮬레이션 진행 상황을 읽는다.
+create or replace function teacher_simulation_progress(p_lesson uuid)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+begin
+  if not is_teacher() then raise exception 'not a teacher'; end if;
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+      'activity_id', p.activity_id, 'student_id', s.id,
+      'class_no', s.class_no, 'name', s.name,
+      'state', p.state, 'updated_at', p.updated_at)
+      order by p.updated_at desc)
+    from simulation_progress p
+    join students s on s.id = p.student_id
+    where p.lesson_id = p_lesson), '[]'::jsonb);
+end $$;
+
 revoke all on function student_enter(text, text, text, text, boolean) from public;
 revoke all on function student_state(text, text) from public;
 revoke all on function teacher_students(uuid) from public;
 revoke all on function student_sim(text, uuid) from public;
 revoke all on function student_save(text, uuid, jsonb) from public;
 revoke all on function create_lesson(text, text) from public;
+revoke all on function student_simulation_progress(text, uuid, jsonb) from public;
+revoke all on function teacher_simulation_progress(uuid) from public;
 grant execute on function student_enter(text, text, text, text, boolean) to anon, authenticated;
 grant execute on function student_state(text, text) to anon, authenticated;
 grant execute on function teacher_students(uuid) to authenticated;
@@ -350,6 +405,8 @@ grant execute on function student_sim(text, uuid) to anon, authenticated;
 grant execute on function student_save(text, uuid, jsonb) to anon, authenticated;
 grant execute on function create_lesson(text, text) to authenticated;
 grant execute on function is_teacher() to authenticated;
+grant execute on function student_simulation_progress(text, uuid, jsonb) to anon, authenticated;
+grant execute on function teacher_simulation_progress(uuid) to authenticated;
 
 -- ------------------------------------------------------------
 -- 슬라이드 그림 저장소: 누구나 주소로 볼 수 있고(학생 화면), 교사만 올리고 지운다.

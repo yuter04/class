@@ -226,4 +226,8 @@ main.lesson.split .sim-stage .sim-frame { max-height: calc(100vh - 9.5rem); }
 .sim-full { position: fixed; inset: 0; z-index: 45; background: #fff; display: flex; flex-direction: column; }
 .sim-full-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .5rem 1rem; border-bottom: 1px solid var(--line); }
 .sim-full .sim-frame { flex: 1; border: 0; border-radius: 0; aspect-ratio: auto; height: auto; min-height: 0; }
+.sim-progress { display: grid; gap: .65rem; border-top: 1px solid var(--line); padding-top: .8rem; }
+.sim-progress-row { display: grid; grid-template-columns: minmax(110px, auto) auto 1fr; align-items: start; gap: .4rem .75rem; padding: .65rem .8rem; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.sim-progress-row ul { grid-column: 1 / -1; margin: 0; padding-left: 1.25rem; color: var(--muted); }
+@media (max-width: 620px) { .sim-progress-row { grid-template-columns: 1fr auto; } .sim-progress-row ul { grid-column: 1 / -1; } }
 textarea.mono { font-family: ui-monospace, Consolas, monospace; font-size: .85rem; }

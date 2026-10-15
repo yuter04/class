@@ -9,6 +9,8 @@ let lesson = null;        // 지금 고른 수업(없으면 새 수업 만들기
 let activities = [];
 let students = [];
 let responses = [];
+let simulationProgress = [];
+let simulationProgressError = null;
 let tab = localStorage.getItem("cra-tab") || "run";
 let timer = null;
 let editing = null;       // 만들기 탭에서 고치는 중인 활동(사본)
@@ -99,6 +101,13 @@ async function loadResponses() {
   const rs = await sb.from("responses").select("*").in("activity_id", ids);
   if (rs.error) return fatal(rs.error);
   responses = rs.data;
+  simulationProgress = [];
+  simulationProgressError = null;
+  if (tab === "run" && activities.some((a) => a.kind === "sim")) {
+    const progress = await sb.rpc("teacher_simulation_progress", { p_lesson: lesson.id });
+    if (progress.error) simulationProgressError = progress.error;
+    else simulationProgress = progress.data || [];
+  }
 }
 
 function schedule() {
@@ -255,7 +264,8 @@ function runBlock(a) {
     h("div", { class: "row between" },
       h("div", {}, h("p", { class: "muted small" }, "시뮬레이션 · " + whereText(a)), h("h2", {}, a.title)),
       h("button", { class: "primary", type: "button", onclick() { openSimFull(a.title, a.html); } }, "크게 실행")),
-    h("p", { class: "pill" }, a.sim_full && lesson.slide_count ? "학생 화면: 슬라이드 자리에 크게 보임" : "학생 화면: 슬라이드 아래 카드로 보임"));
+    h("p", { class: "pill" }, a.sim_full && lesson.slide_count ? "학생 화면: 슬라이드 자리에 크게 보임" : "학생 화면: 슬라이드 아래 카드로 보임"),
+    simProgressView(a));
   if (isInfoActivity(a)) return h("section", { class: "card stack" },
     h("div", { class: "row between" },
       h("div", {}, h("p", { class: "muted small" }, "설명 카드 · " + whereText(a)), h("h2", {}, a.title)),
@@ -281,6 +291,23 @@ function runBlock(a) {
       h("button", { class: "ghost", type: "button", onclick() { openModal(a.title, h("div", { class: "big-view" }, summaryView(a.questions, docsOf(a)))); } }, "크게 보기"),
       h("button", { class: "ghost", type: "button", onclick() { openModal(a.title + " · 학생별", responseTable(a)); } }, "학생별 표"),
       h("button", { class: "ghost", type: "button", onclick() { downloadCSV([a], lesson.code + "_" + a.title); } }, "CSV")));
+}
+
+function simProgressView(activity) {
+  const rows = simulationProgress.filter((row) => row.activity_id === activity.id);
+  if (simulationProgressError) return h("p", { class: "banner bad" }, "실시간 조건을 불러오지 못했습니다. setup.sql의 시뮬레이션 진행 상황 SQL을 Supabase에서 실행했는지 확인하세요. (" + simulationProgressError.message + ")");
+  if (!rows.length) return h("p", { class: "muted small" }, "학생이 시뮬레이션을 열면 현재 조건이 여기에 표시됩니다.");
+  const now = Date.now();
+  return h("div", { class: "sim-progress" },
+    h("h3", {}, "학생 진행 상황 · " + rows.filter((row) => now - Date.parse(row.updated_at) < 45000).length + "명 실행 중"),
+    rows.map((row) => {
+      const age = Math.max(0, Math.floor((now - Date.parse(row.updated_at)) / 1000));
+      const fields = row.state && Array.isArray(row.state.fields) ? row.state.fields : [];
+      return h("div", { class: "sim-progress-row" },
+        h("strong", {}, row.class_no + " " + row.name),
+        h("span", { class: age < 45000 ? "tag ok" : "tag info" }, age < 45000 ? "실행 중" : age + "초 전 마지막 상태"),
+        fields.length ? h("ul", {}, fields.map((field) => h("li", {}, field.label + ": " + field.value))) : h("p", { class: "muted small" }, "조건 입력값 없음"));
+    }));
 }
 
 function responseTable(a) {
